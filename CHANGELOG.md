@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Indexing respects `indexing.embeddingWorkers` in semantic mode. Semantic chunking embeds a document's sentences under `indexing.semanticWorkers` but took no embedding slot, so with the defaults (2 and 4) six requests could reach the provider at once instead of four; it now takes one. A test with 3 embedding workers saw 5 concurrent requests before and at most 3 after. On copies of the real six-paper workspace both builds indexed the same 804 chunks; sync and rebuild times (37–121 s) varied with the network more than between builds.
+
 ## v0.7.3 (2026-10-10)
 
 No rebuild needed: v0.7.x indexes stay compatible. `rag tui` offers the models an endpoint lists, `rag connect codex` keeps the config file's mode, a query falls back to BM25 only for transient embedding errors, and large Markdown files parse in linear time.

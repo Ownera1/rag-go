@@ -263,7 +263,16 @@ func (c *session) indexSnapshot(ctx context.Context, db *store.DB, snap sourceSn
 						done <- work{path: p, stage: "chunk", err: ctx.Err()}
 						continue
 					}
+					// Semantic chunking embeds too, so it takes an embedding slot.
+					select {
+					case embedSlots <- struct{}{}:
+					case <-ctx.Done():
+						<-sem
+						done <- work{path: p, stage: "chunk", err: ctx.Err()}
+						continue
+					}
 					chunks, e = chunk.Semantic(ctx, blocks, c.embedder, c.cfg)
+					<-embedSlots
 					<-sem
 				} else if doc.Format != "text" {
 					for _, b := range blocks {
