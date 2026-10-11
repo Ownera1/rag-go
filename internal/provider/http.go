@@ -82,6 +82,9 @@ func (p *HTTP) call(ctx context.Context, method, path string, body any, out any)
 		}
 	}
 	url := strings.TrimRight(p.cfg.BaseURL, "/") + path
+	// A full batch of JSON vectors takes about 13 bytes a component; 256 of
+	// 4096 dimensions is 13 MiB, more than a fixed 4 MiB cap.
+	limit := max(4<<20, p.batchSize*p.cfg.Dimensions*32+(1<<20))
 	for attempt := 0; attempt <= p.retries; attempt++ {
 		if err = ctx.Err(); err != nil {
 			return err
@@ -105,11 +108,13 @@ func (p *HTTP) call(ctx context.Context, method, path string, body any, out any)
 			err = e
 			retry = true
 		} else {
-			raw, readErr := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+			raw, readErr := io.ReadAll(io.LimitReader(res.Body, int64(limit)+1))
 			res.Body.Close()
 			if readErr != nil {
 				err = readErr
 				retry = true
+			} else if len(raw) > limit && res.StatusCode >= 200 && res.StatusCode < 300 {
+				return fmt.Errorf("model response exceeds %d MiB", limit>>20)
 			} else if res.StatusCode < 200 || res.StatusCode >= 300 {
 				message := string(raw)
 				if p.credential != "" {

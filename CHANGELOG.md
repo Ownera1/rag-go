@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Indexing respects `indexing.embeddingWorkers` in semantic mode. Semantic chunking embeds a document's sentences under `indexing.semanticWorkers` but took no embedding slot, so with the defaults (2 and 4) six requests could reach the provider at once instead of four; it now takes one. A test with 3 embedding workers saw 5 concurrent requests before and at most 3 after. On copies of the real six-paper workspace both builds indexed the same 804 chunks; sync and rebuild times (37–121 s) varied with the network more than between builds.
+- An embedding response may be as large as a full batch needs: `indexing.embeddingBatchSize` × `embedding.dimensions` × 32 bytes plus 1 MiB, and never less than the former 4 MiB. Every response was cut at 4 MiB, so a configuration `rag` accepts, such as 256 inputs of 2048 or 4096 dimensions, failed with `unexpected end of JSON input`; a response over the allowance now fails as `model response exceeds N MiB`. One real paper indexed with voyage-4 at 2048 dimensions and batch 256 failed that way at the chunk stage with v0.7.3 and indexed 99 chunks with this build, and a hybrid query returned hits. The defaults (64 × 1024) keep the 4 MiB cap.
 
 ## v0.7.3 (2026-10-10)
 

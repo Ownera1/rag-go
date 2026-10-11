@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,6 +105,42 @@ func TestConfiguredEmbeddingBatchSize(t *testing.T) {
 		if _, err = NewHTTP(cfg, 3000, 0, size); err == nil {
 			t.Fatalf("accepted batch %d", size)
 		}
+	}
+}
+
+// A full batch of wide vectors is a valid response over 4 MiB; a response
+// over the batch's allowance fails by name, not as truncated JSON.
+func TestLargeEmbeddingResponse(t *testing.T) {
+	component := "0.0156250000000000000" // 1/64: 4096 of them are a unit vector
+	vector := strings.TrimSuffix(strings.Repeat(component+",", 4096), ",")
+	var padding atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+			return
+		}
+		items := make([]string, len(input.Input))
+		for i := range items {
+			items[i] = `{"index":` + strconv.Itoa(i) + `,"embedding":[` + vector + `]}`
+		}
+		_, _ = w.Write([]byte(strings.Repeat(" ", int(padding.Load())) + `{"data":[` + strings.Join(items, ",") + `]}`))
+	}))
+	defer server.Close()
+	cfg := model.ProviderConfig{Type: "openai", Model: "fake", Dimensions: 4096, BaseURL: server.URL}
+	p, err := NewHTTP(cfg, 30000, 0, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vectors, err := p.EmbedDocuments(context.Background(), make([]string, 64))
+	if err != nil || len(vectors) != 64 {
+		t.Fatalf("%d vectors: %v", len(vectors), err)
+	}
+	padding.Store(64*4096*32 + 1<<20)
+	if _, err = p.EmbedDocuments(context.Background(), make([]string, 64)); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized response: %v", err)
 	}
 }
 
