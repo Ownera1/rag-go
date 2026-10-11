@@ -307,7 +307,7 @@ func TestMinerUFigureChunks(t *testing.T) {
 		"The second paragraph discusses the simulation results at length.",
 		"TABLE I Values of the simulation parameters\na",
 	}
-	got, err := FigureChunks(context.Background(), path, chunks)
+	got, err := FigureChunks(context.Background(), path, "", chunks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,10 +317,13 @@ func TestMinerUFigureChunks(t *testing.T) {
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("figure chunks %v, want %v", got, want)
 	}
-	if got, _ := FigureChunks(context.Background(), path, []string{"unrelated text of some other document entirely"}); len(got) != 0 {
+	if got, _ := FigureChunks(context.Background(), path, "stale", chunks); got != nil {
+		t.Fatalf("another version got images %v", got)
+	}
+	if got, _ := FigureChunks(context.Background(), path, "", []string{"unrelated text of some other document entirely"}); len(got) != 0 {
 		t.Fatalf("mismatched chunks got images %v", got)
 	}
-	if got, err := FigureChunks(context.Background(), filepath.Join(dir, "notes.txt"), chunks); err != nil || got != nil {
+	if got, err := FigureChunks(context.Background(), filepath.Join(dir, "notes.txt"), "", chunks); err != nil || got != nil {
 		t.Fatalf("non-MinerU %v %v", got, err)
 	}
 }

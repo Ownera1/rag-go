@@ -1,8 +1,10 @@
 package rag
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -140,6 +142,41 @@ func TestReadOutlineAndContinuation(t *testing.T) {
 		if *p.PageEnd < 3 || *p.PageStart > 3 {
 			t.Fatalf("passage outside page 3: %+v", p)
 		}
+	}
+}
+
+// Read serves the indexed passages, so it attaches no figure from a source
+// changed since; after a sync the changed figure appears.
+func TestReadFiguresMatchIndexedVersion(t *testing.T) {
+	ctx := context.Background()
+	c, alpha, _ := paperFixture(t)
+	b, err := os.ReadFile(alpha.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceFile(t, alpha.Path, bytes.ReplaceAll(b, []byte("fig1.jpg"), []byte("fig2.jpg")))
+	sourceFile(t, filepath.Join(filepath.Dir(alpha.Path), "images", "fig2.jpg"), []byte("jpg"))
+	images := func() []string {
+		r, err := c.Read(ctx, ReadOptions{Document: alpha.ID, MaxTokens: maxReadTokens})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []string{}
+		for _, p := range r.Passages {
+			for _, img := range p.Images {
+				out = append(out, filepath.Base(img))
+			}
+		}
+		return out
+	}
+	if got := images(); len(got) != 0 {
+		t.Fatalf("unsynced source attached %v", got)
+	}
+	if _, err = c.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := images(); len(got) != 1 || got[0] != "fig2.jpg" {
+		t.Fatalf("after sync %v", got)
 	}
 }
 
