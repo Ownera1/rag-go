@@ -551,22 +551,25 @@ func (p *concurrentEmbedding) EmbedDocuments(ctx context.Context, in []string) (
 }
 
 func TestIndexingEmbedsDocumentsConcurrentlyWithinLimit(t *testing.T) {
-	p := &concurrentEmbedding{}
-	cfg := DefaultConfig()
-	cfg.Embedding.Model, cfg.Embedding.Dimensions = "fake", 2
-	cfg.Chunking.Mode = "legacy"
-	cfg.Indexing.EmbeddingWorkers = 3
-	c := configuredCore(t, t.TempDir(), cfg, p)
-	defer c.Close()
-	for i := range 8 {
-		sourceFile(t, docPath(c, fmt.Sprintf("note-%d.txt", i)), []byte(fmt.Sprintf("evidence %d", i)))
-	}
-	r, err := c.Sync(context.Background())
-	if err != nil || r.Indexed != 8 {
-		t.Fatalf("%+v %v", r, err)
-	}
-	if peak := p.peak.Load(); peak < 2 || peak > 3 {
-		t.Fatalf("embedding concurrency %d, want 2..3", peak)
+	// Semantic chunking embeds before the final chunks do; both count.
+	for _, mode := range []string{"legacy", "semantic"} {
+		p := &concurrentEmbedding{}
+		cfg := DefaultConfig()
+		cfg.Embedding.Model, cfg.Embedding.Dimensions = "fake", 2
+		cfg.Chunking.Mode = mode
+		cfg.Indexing.EmbeddingWorkers = 3
+		c := configuredCore(t, t.TempDir(), cfg, p)
+		for i := range 8 {
+			sourceFile(t, docPath(c, fmt.Sprintf("note-%d.txt", i)), []byte(fmt.Sprintf("evidence %d", i)))
+		}
+		r, err := c.Sync(context.Background())
+		c.Close()
+		if err != nil || r.Indexed != 8 {
+			t.Fatalf("%s: %+v %v", mode, r, err)
+		}
+		if peak := p.peak.Load(); peak < 2 || peak > 3 {
+			t.Fatalf("%s: embedding concurrency %d, want 2..3", mode, peak)
+		}
 	}
 }
 
