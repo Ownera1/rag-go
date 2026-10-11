@@ -264,17 +264,18 @@ func Parse(ctx context.Context, path string) (model.Document, error) {
 // caption cut by a chunk boundary still lands; a figure whose caption is too
 // short to locate, such as "(a)", goes with the last block located before it.
 // Images outside the document's folder are dropped, and a document whose text
-// no longer matches its chunks gets none.
+// no longer matches its chunks, or whose source has changed since the version
+// read was indexed (version, a prefix of its hash), gets none.
 // ponytail: MinerU content lists only; middle JSON and Markdown image links
 // would need their own image paths.
-func FigureChunks(ctx context.Context, path string, chunks []string) (map[int][]string, error) {
+func FigureChunks(ctx context.Context, path, version string, chunks []string) (map[int][]string, error) {
 	if !IsMinerUFile(path) || len(chunks) == 0 {
 		return nil, nil
 	}
 	// The blocks as indexing saw them, with their pages and fixes, in the
 	// order it merged them, so each lands in the chunk that holds it.
 	d, err := Parse(ctx, path)
-	if err != nil {
+	if err != nil || !strings.HasPrefix(d.Hash, version) {
 		return nil, err
 	}
 	blocks := chunk.Reading(d.Blocks)

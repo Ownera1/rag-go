@@ -155,7 +155,7 @@ func (c *Core) Read(ctx context.Context, opts ReadOptions) (ReadResult, error) {
 		for i, ch := range chunks {
 			texts[i] = ch.Content
 		}
-		images, _ := document.FigureChunks(ctx, doc.Path, texts)
+		images, _ := document.FigureChunks(ctx, doc.Path, doc.Version, texts)
 		for i := range out.Passages {
 			out.Passages[i].Images = images[out.Passages[i].Index]
 		}
