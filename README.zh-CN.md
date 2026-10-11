@@ -91,7 +91,7 @@ my-project/
 
 一个文档包选择一个 canonical 表示。`rag-source.json` 优先；可识别的 MinerU 文件夹选择一种 JSON 表示，排除 Markdown、metadata 和其他伴随文件。混有多篇论文且无法确定边界的 MinerU 目录会报错并要求拆分。普通文件仍作为独立文档处理。文档包覆盖其子目录，因此文档根目录下直接出现的包文件会使扫描报错，而不是隐藏其他所有文档；扫描忽略 PDF 等不支持的资源。
 
-要更正 OCR 错误而不改 MinerU 原件，在文档包目录下放一个 `rag-fixes.tsv`，每行一对 `错误文本<Tab>正确文本`（`#` 开头为注释），按顺序替换解析后的正文。错误文本直接从查询结果复制，LaTeX 反斜杠照写原样。某行一处都没匹配到时，该文档解析失败并报出行号，避免拼错或因 MinerU 重跑而过期的更正被悄悄忽略。修改该文件会触发重新索引。Agent 阅读时发现识别错误的符号，并在 PDF 页面或图片上核实后，用 `rag_fix` 记录更正（命令行：`rag fix --document … --wrong … --right …`）：只有当错误文本在一行之内、且在应用已有更正后的全文中恰好出现一次时才追加，因此既不会让文档解析失败，也不会改到别处。它不触发同步，阅读期间 chunk id 保持有效；下一次查询会把这段时间的所有更正一次性重新索引。
+要更正 OCR 错误而不改 MinerU 原件，在文档包目录下放一个 `rag-fixes.tsv`，每行一对 `错误文本<Tab>正确文本`（`#` 开头为注释），按顺序替换解析后的正文。错误文本直接从查询结果复制，LaTeX 反斜杠照写原样。某行一处都没匹配到时，该文档解析失败并报出行号，避免拼错或因 MinerU 重跑而过期的更正被悄悄忽略。修改该文件会触发重新索引。Agent 阅读时发现识别错误的符号，并在 PDF 页面或图片上核实后，用 `rag_fix` 记录更正（命令行：`rag fix --document … --wrong … --right …`）：只有当错误文本在一行之内、且在应用已有更正后的全文中恰好出现一次时才追加，因此既不会让文档解析失败，也不会改到别处。它不触发同步，阅读期间 chunk id 保持有效；下一次查询会把这段时间的所有更正一次性重新索引，只为被更正改动的块重新生成 embedding。在此之前，读取该文档不会列出图片。
 
 可选的来源 Manifest：
 
@@ -146,7 +146,7 @@ rag mcp --transport http --listen 127.0.0.1:7331   # 前台运行，只读 HTTP
 
 本地可写 MCP 提供 `rag_query`、`rag_read`、`rag_outline`、`rag_status`、`rag_list_documents`、`rag_fix`、`rag_sync`、`rag_rebuild`、`rag_zotero_sync`、`rag_zotero_match` 和 `rag_zotero_link`。查询参数支持 `query`、`mode`、`top_k`、`candidate_top_k`、`alpha`、`disable_rerank`、`require_rerank`；`disable_sync=true` 禁用正文自动同步，`filter` 在召回前应用缓存的 Zotero metadata 条件，`document`（文档 id、路径，或路径/标题中唯一的片段）把召回限定在一篇文档内。
 
-Agent 可以借助三个读取工具越过检索片段连续阅读论文；它们只读索引，不同步、不调用模型。`rag_list_documents` 返回每篇文档的 `id`、`title`（已关联时用 Zotero 标题）、`path` 和 `version`。`rag_outline` 以 chunk 序号区间和页码列出章节（所有章节共有的论文标题层级只出现一次），文档目录中恰有一个 PDF 时一并返回其路径。`rag_read` 按文档顺序返回 chunk，可用命中的 chunk id（`<文档 id>-<序号>`）配合 `before`/`after`（默认各 2）定位 `around`，或按 `from`/`to` 序号区间、按 PDF 物理页 `pages`（如 `8-9`）读取；输出不超过 `max_tokens`（默认 4000，上限 16000），MinerU 文档的段落会在 `images` 中列出其所含图、图表和表格图片的绝对路径，能打开文件的 Agent 可以直接看图；被截断时给出续读起点 `next`；传入的 `version` 与当前不符时直接报错，不会读到错位的 chunk。`mode=literal` 忽略空白做原文匹配并按文档顺序返回，`\tag{28}` 即可定位公式 (28)。MCP 服务的 instructions 会把这套阅读流程告知所有客户端，包括用 `rag_fix` 更正已核实的识别错误、保留作者原文中的笔误。命令行对应 `rag list`、`rag outline 文档`、`rag read --document … --from/--to/--around/--pages` 和 `rag query --document … --mode literal`。
+Agent 可以借助三个读取工具越过检索片段连续阅读论文；它们只读索引，不同步、不调用模型。`rag_list_documents` 返回每篇文档的 `id`、`title`（已关联时用 Zotero 标题）、`path` 和 `version`。`rag_outline` 以 chunk 序号区间和页码列出章节（所有章节共有的论文标题层级只出现一次），文档目录中恰有一个 PDF 时一并返回其路径。`rag_read` 按文档顺序返回 chunk，可用命中的 chunk id（`<文档 id>-<序号>`）配合 `before`/`after`（默认各 2）定位 `around`，或按 `from`/`to` 序号区间、按 PDF 物理页 `pages`（如 `8-9`）读取；输出不超过 `max_tokens`（默认 4000，上限 16000），源文件仍是已索引版本时，MinerU 文档的段落会在 `images` 中列出其所含图、图表和表格图片的绝对路径，能打开文件的 Agent 可以直接看图；被截断时给出续读起点 `next`；传入的 `version` 与当前不符时直接报错，不会读到错位的 chunk。`mode=literal` 忽略空白做原文匹配并按文档顺序返回，`\tag{28}` 即可定位公式 (28)。MCP 服务的 instructions 会把这套阅读流程告知所有客户端，包括用 `rag_fix` 更正已核实的识别错误、保留作者原文中的笔误。命令行对应 `rag list`、`rag outline 文档`、`rag read --document … --from/--to/--around/--pages` 和 `rag query --document … --mode literal`。
 
 不带 `--workspace` 时，stdio `rag mcp` 可在任意目录启动，每次调用都按必填的 `workspace` 工具参数确定工作区：Agent 当前项目的绝对路径，或其中任意子目录。调用不携带工作目录，而服务自身的目录在 Agent 切换项目后仍停留在启动位置，因此不设默认值，缺省或相对路径会被拒绝。在工作区之外调用会提示如何初始化。带 `--workspace` 启动的服务和所有 HTTP 服务只服务一个工作区：此时 `workspace` 可省略，便于不知道本机路径的远程客户端调用；若传入则必须是绝对路径且位于该工作区内。
 
@@ -169,7 +169,7 @@ Embedding 支持 Voyage，以及接收 `POST {baseUrl}/embeddings` 并返回 `da
 
 阿里云百炼（DashScope）的 Qwen 模型两者都能接：embedding 用 `openai` 类型，`baseUrl` 为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，模型 `text-embedding-v4`，`dimensions` 填其默认值 1024（`openai` 类型不发送维度）；reranker 用 `dashscope` 类型，`baseUrl` 为 `https://dashscope.aliyuncs.com/compatible-api/v1`，模型 `qwen3-rerank`。`indexing.embeddingBatchSize` 设为 10，即 `text-embedding-v4` 单次请求的上限。两者读取 `apiKeyEnv` 指定的密钥（例如 `DASHSCOPE_API_KEY`），由于不是 `rag install` 记录的端点，只从工作区读取：`rag init` 负责存入，新工作区取自环境变量，已有工作区在终端里询问。
 
-切块前会合并同一章节、同一页内相邻的正文 block，使 MinerU 等按段落导出的格式切出接近目标大小的块，且不会扩大页码范围。默认的 `semantic` 切块会先为每个句子级单元生成 embedding 来选择边界，再为最终的块生成 embedding，因此索引消耗的 embedding tokens 约为 `legacy` 的两倍。`indexing.embeddingWorkers`（默认 4）限制同时为最终块生成 embedding 的请求数；`indexing.semanticWorkers`（默认 2）另行限制同时选择语义边界的文档数，每个文档一次只发一个请求，所以默认最多同时有 6 个 embedding 请求。
+切块前会合并同一章节、同一页内相邻的正文 block，使 MinerU 等按段落导出的格式切出接近目标大小的块，且不会扩大页码范围。默认的 `semantic` 切块会先为每个句子级单元生成 embedding 来选择边界，再为最终的块生成 embedding，因此索引消耗的 embedding tokens 约为 `legacy` 的两倍。`indexing.embeddingWorkers`（默认 4）限制索引时同时进行的全部 embedding 请求；`indexing.semanticWorkers`（默认 2）限制其中可用于选择语义边界的文档数，每个文档一次只发一个请求。文档变化后，只有文字变了的最终块重新生成 embedding；句子级单元仍会全部重新生成。
 
 查询模式为 `hybrid`（默认）、`bm25`、`vector` 和 `literal`；`--no-rerank` 可用于基线测试。Hybrid 在查询 embedding 暂时失败时降级为 BM25，并返回 `method`/`degraded`；vector 模式返回错误。调用取消会中止操作。BM25 命中任一查询词即可召回，中文 BM25 使用汉字 unigram/bigram 索引。Hybrid 把 BM25 分数和余弦相似度各自在本路结果内 min-max 缩放到 [0, 1]，再加权相加：alpha 是 BM25 的权重，1 - alpha 是向量的权重。结果中的 `bm25` 和 `vector` 为原始 BM25 相关度与余弦相似度，`hybrid` 为融合分数。
 
