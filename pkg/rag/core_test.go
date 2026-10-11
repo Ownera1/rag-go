@@ -76,8 +76,8 @@ func openTest(t *testing.T, root string, p EmbeddingProvider) *Core {
 func docPath(c *Core, name string) string { return filepath.Join(c.WorkspaceDir(), "documents", name) }
 
 type countedEmbedding struct {
-	calls atomic.Int32
-	fail  atomic.Bool
+	calls, inputs atomic.Int32
+	fail          atomic.Bool
 }
 
 func (*countedEmbedding) Model() string   { return "fake" }
@@ -87,7 +87,36 @@ func (*countedEmbedding) EmbedQuery(context.Context, string) ([]float32, error) 
 }
 func (p *countedEmbedding) EmbedDocuments(ctx context.Context, in []string) ([][]float32, error) {
 	p.calls.Add(1)
+	p.inputs.Add(int32(len(in)))
 	return fakeEmbedding{fail: p.fail.Load()}.EmbedDocuments(ctx, in)
+}
+
+func TestChangedDocumentReembedsOnlyChangedChunks(t *testing.T) {
+	ctx := context.Background()
+	p := &countedEmbedding{}
+	cfg := DefaultConfig()
+	cfg.Embedding.Model, cfg.Embedding.Dimensions = "fake", 2
+	cfg.Chunking.Mode = "legacy"
+	c := configuredCore(t, t.TempDir(), cfg, p)
+	defer c.Close()
+	file := docPath(c, "paper.md")
+	sourceFile(t, file, []byte("# One\n\nfirst passage\n\n# Two\n\nsecond passage\n\n# Three\n\nthird passage\n"))
+	if r, err := c.Sync(ctx); err != nil || r.Indexed != 1 || p.inputs.Load() != 3 {
+		t.Fatalf("initial: %+v %v, %d inputs", r, err, p.inputs.Load())
+	}
+	sourceFile(t, file, []byte("# One\n\nfirst passage\n\n# Two\n\nsecond passage, corrected\n\n# Three\n\nthird passage\n"))
+	if r, err := c.Sync(ctx); err != nil || r.Indexed != 1 || p.inputs.Load() != 4 {
+		t.Fatalf("changed: %+v %v, %d inputs", r, err, p.inputs.Load())
+	}
+	// Every chunk, reused or new, is found by vector search.
+	q, err := c.Query(ctx, "third", QueryOptions{Mode: "vector", DisableRerank: true})
+	if err != nil || len(q.Hits) != 3 {
+		t.Fatalf("query: %+v %v", q, err)
+	}
+	// A rebuild may follow a model change, so it never reuses vectors.
+	if _, err = c.Rebuild(ctx); err != nil || p.inputs.Load() != 7 {
+		t.Fatalf("rebuild: %v, %d inputs", err, p.inputs.Load())
+	}
 }
 
 func TestAutomaticSyncHashChangesNoSyncAndDelete(t *testing.T) {

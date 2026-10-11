@@ -266,6 +266,38 @@ func (d *DB) Embedded(ctx context.Context) (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// Embeddings maps each indexed chunk of the document with this id to its
+// vector, keyed by the text indexing embedded: the heading, a blank line and
+// the content, or the content alone. Unchanged chunks keep their vectors when
+// a correction re-indexes the document.
+func (d *DB) Embeddings(ctx context.Context, documentID string) (map[string][]float32, error) {
+	rows, err := d.SQL.QueryContext(ctx, `SELECT c.chunk_content, f.heading, v.embedding
+FROM files fi JOIN chunks c ON c.file_path=fi.path
+JOIN chunks_fts f ON f.rowid=c.rowid JOIN chunks_vec v ON v.rowid=c.rowid
+WHERE fi.document_id=?`, documentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]float32{}
+	for rows.Next() {
+		var content, heading string
+		var blob []byte
+		if err = rows.Scan(&content, &heading, &blob); err != nil {
+			return nil, err
+		}
+		if heading != "" {
+			content = heading + "\n\n" + content
+		}
+		v := make([]float32, len(blob)/4)
+		for i := range v {
+			v[i] = math.Float32frombits(binary.LittleEndian.Uint32(blob[i*4:]))
+		}
+		out[content] = v
+	}
+	return out, rows.Err()
+}
+
 func vecBytes(v []float32) []byte {
 	b := make([]byte, 4*len(v))
 	for i, x := range v {
