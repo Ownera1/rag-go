@@ -312,14 +312,41 @@ func (c *session) indexSnapshot(ctx context.Context, db *store.DB, snap sourceSn
 						texts[i] = chunks[i].Heading + "\n\n" + texts[i]
 					}
 				}
-				select {
-				case embedSlots <- struct{}{}:
-				case <-ctx.Done():
-					done <- work{path: p, stage: "embed", err: ctx.Err()}
+				// Only texts the index has no vector for are embedded, so a
+				// correction re-embeds the chunks it changed.
+				old, e := db.Embeddings(ctx, doc.ID)
+				if e != nil {
+					done <- work{path: p, stage: "store", err: e}
 					continue
 				}
-				vectors, e := c.embedder.EmbedDocuments(ctx, texts)
-				<-embedSlots
+				vectors := make([][]float32, len(texts))
+				missing, at := []string{}, []int{}
+				for i, t := range texts {
+					if v, ok := old[t]; ok {
+						vectors[i] = v
+					} else {
+						missing, at = append(missing, t), append(at, i)
+					}
+				}
+				if len(missing) > 0 {
+					select {
+					case embedSlots <- struct{}{}:
+					case <-ctx.Done():
+						done <- work{path: p, stage: "embed", err: ctx.Err()}
+						continue
+					}
+					var fresh [][]float32
+					fresh, e = c.embedder.EmbedDocuments(ctx, missing)
+					<-embedSlots
+					if e == nil && len(fresh) != len(missing) {
+						e = errors.New("embedding count mismatch")
+					}
+					if e == nil {
+						for j, i := range at {
+							vectors[i] = fresh[j]
+						}
+					}
+				}
 				done <- work{path: p, doc: doc, chunks: chunks, vectors: vectors, stage: "embed", err: e}
 			}
 		}()
