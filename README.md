@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/rag-go-mark-dark.svg">
+  <img src="docs/assets/rag-go-mark.svg" alt="rag-go logo" width="72">
+</picture>
+
 # rag-go
 
 [English](README.md) | [简体中文](README.zh-CN.md)
